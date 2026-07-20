@@ -4,45 +4,36 @@ __pycache__/
 *$py.class
 *.so
 .Python
+
 env/
 build/
-develop-eggs/
 dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-share/python-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
 .venv/
 venv/
 ENV/
-env.bak/
-venv.bak/
 
-# Base de datos y volúmenes (si llegaras a mapear localmente)
+# Base de datos
 postgres_data/
 pgdata/
 
-# Datos (Los datasets suelen ser muy pesados para GitHub)
+# Datos pesados
 data/
 *.csv
 
-# Modelos entrenados (Los binarios h5 y pkl son pesados y generados por el código)
-model_service/*.h5
-model_service/*.pkl
+# Modelos
+*.h5
+*.pkl
+*.pth
 
-# Archivos de entorno y secretos
+# Permitir modelos entrenados necesarios
+!model_service/models/production/*.pkl
+!model_service/models/experiments/*.pth
+!model_service/models/experiments/*.pkl
+
+# Archivos de entorno
 .env
 .env.local
 
-# Archivos del SO
+# Sistema
 .DS_Store
 Thumbs.db
