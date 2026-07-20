@@ -1,28 +1,40 @@
-version: '3.8'
+version: "3.8"
 
 services:
+
   postgres:
     image: postgres:15-alpine
     container_name: softint-postgres
+
     environment:
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: adminpassword
       POSTGRES_DB: softint
+
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./db_init:/docker-entrypoint-initdb.d
+
     ports:
       - "15432:5432"
+
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U admin -d softint"]
-      interval: 10s
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U admin -d softint"
+        ]
+      interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+
     restart: unless-stopped
+
 
   n8n:
     image: docker.n8n.io/n8nio/n8n
     container_name: softint-n8n
+
     environment:
       - DB_TYPE=postgresdb
       - DB_POSTGRESDB_HOST=postgres
@@ -31,28 +43,88 @@ services:
       - DB_POSTGRESDB_USER=admin
       - DB_POSTGRESDB_PASSWORD=adminpassword
       - N8N_BASIC_AUTH_ACTIVE=false
-      # Habilitamos nodos comunes en n8n
       - NODE_ENV=production
+      - GENERIC_TIMEZONE=America/Lima
+      - TZ=America/Lima
+
     ports:
       - "5678:5678"
+
     volumes:
       - n8n_data:/home/node/.n8n
+
     depends_on:
       postgres:
         condition: service_healthy
+
     restart: unless-stopped
+
 
   model_service:
     build:
       context: ./model_service
+
     container_name: softint-model
+
     ports:
       - "8000:8000"
+
     volumes:
       - ./model_service:/app
+
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: softint
+      DB_USER: admin
+      DB_PASSWORD: adminpassword
+
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
+
     restart: unless-stopped
+
+
+  traffic_generator:
+    build:
+      context: ./traffic_generator
+
+    container_name: softint-generator
+
+    ports:
+      - "8001:8001"
+
+    volumes:
+      - ./traffic_generator:/app
+
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: softint
+      DB_USER: admin
+      DB_PASSWORD: adminpassword
+      DEFAULT_EVENTS_PER_SECOND: 5
+      TZ: America/Lima
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+    restart: unless-stopped
+
 
 volumes:
   postgres_data:
