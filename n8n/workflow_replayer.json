@@ -1,0 +1,198 @@
+{
+  "name": "SoftInt Replayer Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "seconds",
+              "secondsInterval": 5
+            }
+          ]
+        }
+      },
+      "id": "e0231d68-1960-4c28-9f1c-7fc625906ef6",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [ 240, 300 ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE network_traffic SET processed = true WHERE id = (SELECT id FROM network_traffic WHERE processed = false ORDER BY id ASC LIMIT 1) RETURNING *;"
+      },
+      "id": "787c8003-8839-44d4-a7fc-1cf88c7f3e8b",
+      "name": "Fetch Traffic",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.2,
+      "position": [ 460, 300 ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-cred-id",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://model_service:8000/score",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "data",
+              "value": "={{ $json }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c16194b4-8cf3-40fa-80e5-797de9655f46",
+      "name": "Score Model",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [ 680, 300 ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $json.reconstruction_error }}",
+              "operation": "larger",
+              "value2": 1.5
+            }
+          ]
+        }
+      },
+      "id": "d6438ed5-fb07-4e63-8a3c-b26a578f23f4",
+      "name": "Is Anomaly?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [ 900, 300 ]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": "public",
+        "table": "anomalies",
+        "columns": "traffic_id, reconstruction_error, threshold",
+        "options": {}
+      },
+      "id": "9ef6a877-6d60-4786-91e7-2b7218afefbe",
+      "name": "Log Anomaly",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.2,
+      "position": [ 1120, 180 ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-cred-id",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "No anomaly detected."
+      },
+      "id": "e44cdafc-4632-47d0-a083-dcc6cbbabf84",
+      "name": "Ignore",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [ 1120, 420 ]
+    },
+    {
+      "parameters": {
+        "values": {
+          "number": [
+            {
+              "name": "traffic_id",
+              "value": "={{ $('Fetch Traffic').item.json.id }}"
+            },
+            {
+              "name": "reconstruction_error",
+              "value": "={{ $('Score Model').item.json.reconstruction_error }}"
+            },
+            {
+              "name": "threshold",
+              "value": 1.5
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "6d9fb7d2-4303-4c92-bf3e-10ffb13fc817",
+      "name": "Format Insert",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [ 980, 100 ]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Fetch Traffic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Traffic": {
+      "main": [
+        [
+          {
+            "node": "Score Model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score Model": {
+      "main": [
+        [
+          {
+            "node": "Is Anomaly?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Anomaly?": {
+      "main": [
+        [
+          {
+            "node": "Format Insert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ignore",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Insert": {
+      "main": [
+        [
+          {
+            "node": "Log Anomaly",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

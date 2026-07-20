@@ -1,0 +1,190 @@
+{
+  "name": "Mini-SOAR Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "seconds",
+              "secondsInterval": 5
+            }
+          ]
+        }
+      },
+      "id": "trigger-node",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [ 0, 300 ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE network_traffic SET processed = true WHERE id = (SELECT id FROM network_traffic WHERE processed = false ORDER BY id ASC LIMIT 1) RETURNING *;"
+      },
+      "id": "fetch-traffic",
+      "name": "Fetch Traffic",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.2,
+      "position": [ 220, 300 ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-cred-id",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://model_service:8000/score",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "data",
+              "value": "={{ $json.payload }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "score-model",
+      "name": "Score Model",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [ 440, 300 ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.prediction }}",
+              "value2": "anomaly"
+            }
+          ]
+        }
+      },
+      "id": "is-anomaly",
+      "name": "Is Anomaly?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [ 660, 300 ]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "severity",
+              "value": "={{ $json.probability < 0.6 ? 'LOW' : ($json.probability < 0.85 ? 'MEDIUM' : ($json.probability < 0.95 ? 'HIGH' : 'CRITICAL')) }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-severity",
+      "name": "Set Severity",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [ 880, 200 ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO incidents (ip_address, severity, average_probability, occurrences) VALUES ('{{ $('Fetch Traffic').first().json.source_ip }}', '{{ $json.severity }}', {{ $('Score Model').first().json.probability }}, 1) ON CONFLICT (ip_address) DO UPDATE SET occurrences = incidents.occurrences + 1, last_detected_at = CURRENT_TIMESTAMP, severity = EXCLUDED.severity, average_probability = (incidents.average_probability + EXCLUDED.average_probability) / 2 RETURNING *;"
+      },
+      "id": "upsert-incident",
+      "name": "Upsert Incident",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.2,
+      "position": [ 1100, 200 ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-cred-id",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "=* ALERTA SOAR *\nIncidente detectado para la IP: {{ $('Fetch Traffic').first().json.source_ip }}\nSeveridad: {{ $('Set Severity').first().json.severity }}\nOcurrencias: {{ $json.occurrences }}\nÚltima Probabilidad: {{ $('Score Model').first().json.probability }}\n\n(Reemplazar este nodo con Telegram/Discord si se desea alertar al exterior)"
+      },
+      "id": "alert-node",
+      "name": "Print Alert (Console)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [ 1320, 200 ]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Fetch Traffic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Traffic": {
+      "main": [
+        [
+          {
+            "node": "Score Model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score Model": {
+      "main": [
+        [
+          {
+            "node": "Is Anomaly?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Anomaly?": {
+      "main": [
+        [
+          {
+            "node": "Set Severity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Severity": {
+      "main": [
+        [
+          {
+            "node": "Upsert Incident",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert Incident": {
+      "main": [
+        [
+          {
+            "node": "Print Alert (Console)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}
