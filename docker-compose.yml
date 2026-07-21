@@ -73,6 +73,7 @@ services:
       - ./model_service:/app
 
     environment:
+      MODEL_TYPE: keras
       DB_HOST: postgres
       DB_PORT: 5432
       DB_NAME: softint
